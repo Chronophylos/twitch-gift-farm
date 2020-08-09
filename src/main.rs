@@ -96,19 +96,19 @@ fn handle_subgift(msg: Arc<messages::UserNotice>, username: String) {
     info!(
         "[{}] Received a {} {} from {}. Subscription Plan: {}",
         msg.channel,
-        sub_plan_to_string(msg.msg_param_sub_plan().unwrap()),
+        sub_plan_to_string(msg.msg_param_sub_plan()),
         gift_type,
         msg.display_name().or(msg.login()).unwrap(),
         msg.msg_param_sub_plan_name().unwrap().replace("\\s", " "),
     )
 }
 
-fn sub_plan_to_string(plan: SubPlan) -> &'static str {
+fn sub_plan_to_string(plan: Option<SubPlan>) -> &'static str {
     match plan {
-        SubPlan::Prime => "prime",
-        SubPlan::Tier1 => "tier1",
-        SubPlan::Tier2 => "tier2",
-        SubPlan::Tier3 => "tier3",
+        Some(SubPlan::Prime) => "prime",
+        Some(SubPlan::Tier1) => "tier1",
+        Some(SubPlan::Tier2) => "tier2",
+        Some(SubPlan::Tier3) => "tier3",
         _ => "Unknown",
     }
 }
@@ -116,8 +116,8 @@ fn sub_plan_to_string(plan: SubPlan) -> &'static str {
 #[tokio::main]
 async fn main() -> Result<()> {
     flexi_logger::Logger::with_env_or_str("info")
-        .start()
-        .unwrap();
+        .format(flexi_logger::colored_opt_format)
+        .start()?;
 
     let dispatcher = Dispatcher::new();
     let (mut runner, control) = Runner::new(dispatcher.clone());
