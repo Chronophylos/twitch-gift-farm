@@ -1,0 +1,18 @@
+[package]
+name = "twitch-gift-farm"
+version = "0.1.0"
+authors = ["Chronophylos <nikolai@chronophylos.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+twitchchat = "0.11.8"
+tokio = { version = "0.2", features = ["full"] }
+ron = "0.6.0"
+log = "0.4.11"
+serde = { version = "1.0.114", features = ["derive"]}
+anyhow = "1.0"
+lazy_static = "1.4.0"
+flexi_logger = "0.15.11"
+directories = "3.0.1"
