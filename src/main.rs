@@ -1,16 +1,17 @@
 use anyhow::{Context, Result};
 use directories::ProjectDirs;
 use lazy_static::lazy_static;
-use log::{debug, error, info, warn};
-use messages::SubPlan;
+use log::{debug, error, info, trace};
+use messages::{SubPlan, UserNotice};
 use ron::de::from_reader;
 use serde::Deserialize;
-use std::{fs::File, sync::Arc};
-use tokio::stream::StreamExt as _;
+use std::fs::File;
 use twitchchat::{
-    events,
+    connector::SmolConnectorTls,
+    messages::Commands,
     messages::{self, NoticeType},
-    Capability, Control, Dispatcher, Runner, Status, UserConfig,
+    twitch::Capability,
+    AsyncRunner, Status, UserConfig,
 };
 
 lazy_static! {
@@ -37,70 +38,80 @@ struct Config {
 }
 
 struct Bot {
-    control: Control,
+    user_config: UserConfig,
 }
 
 impl Bot {
-    async fn run(mut self, dispatcher: Dispatcher, channels: Vec<String>) {
+    async fn run(&mut self, channels: Vec<String>) -> Result<()> {
         debug!("Running bot");
         info!("Will join {} channels", channels.len());
 
-        let mut irc_ready = dispatcher.subscribe::<events::IrcReady>();
-        let mut join = dispatcher.subscribe::<events::Join>();
-        let mut notice = dispatcher.subscribe::<events::UserNotice>();
-        let writer = self.control.writer();
+        let connector = SmolConnectorTls::twitch()?;
+        let mut runner = AsyncRunner::connect(connector, &self.user_config).await?;
 
-        tokio::spawn(async move {
-            let username = CONFIG.username.clone();
-            while let Some(msg) = join.next().await {
-                if msg.name == username {
-                    info!("Joined {}", msg.channel);
-                }
-            }
-        });
+        info!("Connecting as {}", runner.identity.username());
 
-        tokio::spawn(async move {
-            let username = CONFIG.username.clone();
-            while let Some(msg) = notice.next().await {
-                match msg.msg_id() {
-                    Some(NoticeType::SubGift) | Some(NoticeType::AnonSubGift) => {
-                        handle_subgift(msg, username.clone());
-                    }
-                    _ => {}
-                }
-            }
-        });
-
-        while let Some(msg) = irc_ready.next().await {
-            info!("Connected as {}", msg.nickname);
-            for channel in &channels {
-                writer.join(channel).await.unwrap();
+        for channel in channels {
+            info!("Joining: {}", channel);
+            if let Err(err) = runner.join(&channel).await {
+                error!("Error while joining '{}': {}", channel, err);
             }
         }
-    }
-}
 
-fn handle_subgift(msg: Arc<messages::UserNotice>, username: String) {
-    if let Some(recipient) = msg.msg_param_recipient_user_name() {
-        if recipient != username {
-            return;
+        debug!("starting main loop");
+        self.main_loop(runner).await
+    }
+
+    async fn main_loop(&mut self, mut runner: AsyncRunner) -> Result<()> {
+        let quit = runner.quit_handle();
+
+        loop {
+            // this drives the internal state of the crate
+            match runner.next_message().await? {
+                // if we get a Privmsg (you'll get an Commands enum for all messages received)
+                Status::Message(Commands::UserNotice(user_notice)) => {
+                    self.handle_subgift(user_notice)
+                }
+                // ignore the rest
+                Status::Message(..) => continue,
+                // stop if we're stopping
+                Status::Quit => {
+                    quit.notify().await;
+                    break;
+                }
+                Status::Eof => {
+                    let connector = SmolConnectorTls::twitch()?;
+                    runner = AsyncRunner::connect(connector, &self.user_config).await?
+                }
+            }
         }
+
+        trace!("end of main loop");
+        Ok(())
     }
 
-    let gift_type = match msg.msg_id() {
-        Some(NoticeType::SubGift) => "sub gift",
-        Some(NoticeType::AnonSubGift) => "anonymous sub gift",
-        _ => "unknown",
-    };
+    fn handle_subgift(&self, msg: UserNotice<'_>) {
+        if let Some(recipient) = msg.msg_param_recipient_user_name() {
+            if recipient != self.user_config.name {
+                return;
+            }
+        }
 
-    info!(
-        "[{}] Received a {} {} from {}. Subscription Plan: {}",
-        msg.channel,
-        sub_plan_to_string(msg.msg_param_sub_plan()),
-        gift_type,
-        msg.display_name().or(msg.login()).unwrap(),
-        msg.msg_param_sub_plan_name().unwrap().replace("\\s", " "),
-    )
+        let gift_type = match msg.msg_id() {
+            Some(NoticeType::SubGift) => "sub gift",
+            Some(NoticeType::AnonSubGift) => "anonymous sub gift",
+            _ => "unknown",
+        };
+
+        info!(
+            "[{}] Received a {} {} from {}. Subscription Plan: {}",
+            msg.channel(),
+            sub_plan_to_string(msg.msg_param_sub_plan()),
+            gift_type,
+            msg.display_name().or(msg.login()).unwrap(),
+            msg.msg_param_sub_plan_name().unwrap().replace("\\s", " "),
+        )
+    }
 }
 
 fn sub_plan_to_string(plan: Option<SubPlan>) -> &'static str {
@@ -113,47 +124,18 @@ fn sub_plan_to_string(plan: Option<SubPlan>) -> &'static str {
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     flexi_logger::Logger::with_env_or_str("info")
         .format(flexi_logger::colored_opt_format)
         .start()?;
 
-    let dispatcher = Dispatcher::new();
-    let (mut runner, control) = Runner::new(dispatcher.clone());
+    let user_config = UserConfig::builder()
+        .name(CONFIG.username.clone())
+        .token(CONFIG.token.clone())
+        .capabilities(&[Capability::Tags, Capability::Commands])
+        .build()?;
 
-    // make a bot and get a future to its main loop
-    let bot = Bot { control }.run(dispatcher, CONFIG.channels.clone());
+    let mut bot = Bot { user_config };
 
-    // connect to twitch
-    // the runner requires a 'connector' factory so reconnect support is possible
-    let connector = twitchchat::Connector::new(move || async move {
-        let user_config = UserConfig::builder()
-            .name(CONFIG.username.clone())
-            .token(CONFIG.token.clone())
-            .capabilities(&[Capability::Tags, Capability::Commands])
-            .build()
-            .unwrap();
-        twitchchat::native_tls::connect(&user_config).await
-    });
-
-    // and run the dispatcher/writer loop
-    let done = runner.run_to_completion(connector);
-
-    // and select over our two futures
-    tokio::select! {
-        // wait for the bot to complete
-        _ = bot => { info!("done running the bot") }
-        // or wait for the runner to complete
-        status = done => {
-            match status {
-                Ok(Status::Canceled) => { info!("runner was canceled") }
-                Ok(Status::Eof) => { warn!("got an eof, exiting") }
-                Ok(Status::Timeout) => { warn!("client timed out, exiting") }
-                Err(err) => { error!("error running: {}", err) }
-            }
-        }
-    }
-
-    Ok(())
+    smol::block_on(bot.run(CONFIG.channels.clone()))
 }
