@@ -2,13 +2,16 @@ language: rust
 rust: stable
 cache: cargo
 script:
-    - cargo build --release --verbose
+    - cargo build --release --verbose --bins
     #- cargo test --verbose
+    - mv target/release/get-streams tgf-get-streams
 deploy:
     provider: releases
     api_key:
         secure: 'cxklZzYDqtSKHXLiwl/R+zdWK/54uAtXmcavQmLHb0cZf724hKwGfx7vWAQay06UNlKmS/EIBvO0/l+1nhNc/xyxUupXqqKrxYxYuzCJXDSBH+jZ1kgu7GK5A8bkwxBfO1tE6yDLhoX6yAf8gLIsEBgQi/jVaSGhKMgMTuZcBAMwc1iNMoBUkIv4Dx1hhB5rtr21vEuC9sPU720M1kaSPNyjnp6gWx2tPPTDkkg5mpdH+qQiePOjRylQNVLoFbx7ntn3pdplgplzekTX0t+qS9mOhZgNjkpGoPgsBLJI4ElLOqX6y2EiQhp3qLPc/3IbhxFCAlLL+RdmKtPP/KrbNtsR6moIkU3WQ4zz1MXgD3EIX+9SB/+aNC/bUIteN6sKB1ecv0kLp53fD/WoOv7pRp7djYKKnxqb/Jq57p+Pi3EYMz0SKJgQQIkA5HRoCniq1VWK+3vgi/fEKoG5rDJ68/EBibVDCAHHwy7YYYrYqwpyY0DsEV1twXFjq8rPmXAK37ABRmAmz3yyqS6yjnd3eFg+yLkZxT/p6JVHcdB9fqcnFjw7F4il5KnKoWd6j8f7zfretzI1VZ8zCCEUsmE8oFoZqA2kZeMFYo4I1SaXOHECE5jAmBNdR1/D218+r2Hz4/rJFeGB9TynN6S3klSxlMeySzQL7B+qFRRwtI3X+9w='
-    file: 'target/release/twitch-gift-farm'
+    file:
+        - 'target/release/twitch-gift-farm'
+        - 'tgf-get-streams'
     skip_cleanup: true
     on:
         tags: true

@@ -1,6 +1,6 @@
 [package]
 name = "twitch-gift-farm"
-version = "0.2.2"
+version = "0.3.0"
 authors = ["Chronophylos <nikolai@chronophylos.com>"]
 edition = "2018"
 
@@ -14,3 +14,5 @@ lazy_static = "1.4.0"
 flexi_logger = "0.16"
 directories = "3.0.1"
 smol = "1.2.5"
+async-compat = "0.1.4"
+reqwest = { version = "0.10", features = ["json", "rustls-tls"] }
