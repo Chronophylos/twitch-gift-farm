@@ -1,42 +1,16 @@
-use anyhow::{anyhow, Context, Result};
-use directories::ProjectDirs;
+use anyhow::{anyhow, Result};
 use flexi_logger::{style, DeferredNow, Record};
-use lazy_static::lazy_static;
 use log::{debug, error, info};
 use messages::{SubPlan, UserNotice};
-use ron::de::from_reader;
-use serde::Deserialize;
 use smol::{future::FutureExt, Timer};
-use std::{fs::File, time::Duration};
+use std::time::Duration;
+use twitch_gift_farm::Config;
 use twitchchat::{
     connector::SmolConnectorTls,
     messages::{self, Commands, NoticeType},
     twitch::Capability,
     AsyncRunner, Status, UserConfig,
 };
-
-lazy_static! {
-    static ref PROJ_DIRS: ProjectDirs =
-        ProjectDirs::from("com", "chronophylos", "twitch-gift-farm").unwrap();
-    static ref CONFIG: Config = {
-        let path = PROJ_DIRS.config_dir().join("config.ron");
-        debug!("Loading config from {}", path.display());
-        from_reader(
-            File::open(path)
-                .context("Could not open config file")
-                .unwrap(),
-        )
-        .context("Could not parse config file")
-        .unwrap()
-    };
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct Config {
-    username: String,
-    token: String,
-    channels: Vec<String>,
-}
 
 struct Bot {
     user_config: UserConfig,
@@ -81,7 +55,7 @@ impl Bot {
             if let Err(err) = self
                 .join(&channel)
                 .or(async {
-                    Timer::after(Duration::from_secs(3)).await;
+                    Timer::after(Duration::from_secs(30)).await;
                     Err(anyhow!("timed out"))
                 })
                 .await
@@ -191,13 +165,18 @@ fn main() -> Result<()> {
         .format(logger_format)
         .start()?;
 
+    let config = Config::load()?;
+
     let user_config = UserConfig::builder()
-        .name(CONFIG.username.clone())
-        .token(CONFIG.token.clone())
+        .name(config.username)
+        .token(config.token)
         .capabilities(&[Capability::Tags, Capability::Commands])
         .build()?;
 
-    let mut bot = smol::block_on(Bot::new(user_config, CONFIG.channels.clone()))?;
+    let mut bot = smol::block_on(Bot::new(
+        user_config,
+        config.channels.iter().map(|s| s.to_string()).collect(),
+    ))?;
 
     smol::block_on(bot.run())
 }
