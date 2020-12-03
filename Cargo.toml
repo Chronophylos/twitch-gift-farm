@@ -1,6 +1,6 @@
 [package]
 name = "twitch-gift-farm"
-version = "0.2.1"
+version = "0.2.2"
 authors = ["Chronophylos <nikolai@chronophylos.com>"]
 edition = "2018"
 
