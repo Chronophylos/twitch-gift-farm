@@ -113,7 +113,10 @@ impl Bot {
         let gift_type = sub_gift_to_string(msg.msg_id());
         let sub_plan = sub_plan_to_string(msg.msg_param_sub_plan());
         let display_name = msg.display_name().or(msg.login()).unwrap_or("anonymous");
-        let sub_plan_name = msg.msg_param_sub_plan_name().unwrap().replace("\\s", " ");
+        let sub_plan_name = msg
+            .msg_param_sub_plan_name()
+            .unwrap_or("unknown")
+            .replace("\\s", " ");
 
         info!(
             "[{}] Received a {} {} from {}. Subscription Plan: {}",
