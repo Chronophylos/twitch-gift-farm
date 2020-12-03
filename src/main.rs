@@ -1,17 +1,16 @@
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use directories::ProjectDirs;
+use flexi_logger::{style, DeferredNow, Record};
 use lazy_static::lazy_static;
-use log::{debug, error, info, trace};
+use log::{debug, error, info};
 use messages::{SubPlan, UserNotice};
 use ron::de::from_reader;
 use serde::Deserialize;
-use smol::Timer;
+use smol::{future::FutureExt, Timer};
 use std::{fs::File, time::Duration};
 use twitchchat::{
-    commands,
     connector::SmolConnectorTls,
-    messages::Commands,
-    messages::{self, NoticeType},
+    messages::{self, Commands, NoticeType},
     twitch::Capability,
     AsyncRunner, Status, UserConfig,
 };
@@ -60,72 +59,77 @@ impl Bot {
     async fn run(&mut self) -> Result<()> {
         debug!("Running bot");
 
-        self.connect().await?;
+        self.join_channels().await?;
 
         debug!("starting main loop");
         self.main_loop().await
     }
 
-    async fn connect(&mut self) -> Result<()> {
+    async fn reconnect(&mut self) -> Result<()> {
         let connector = SmolConnectorTls::twitch()?;
         self.runner = AsyncRunner::connect(connector, &self.user_config).await?;
 
-        info!("Connecting as {}", self.runner.identity.username());
+        self.join_channels().await
+    }
 
-        smol::spawn({
-            let mut writer = self.runner.writer();
-            let channels = self.channels.clone();
+    async fn join_channels(&mut self) -> Result<()> {
+        info!("Joining {} channels", self.channels.len());
+        let channels = self.channels.clone();
 
-            info!("Will join {} channels", channels.len());
-
-            async move {
-                for channel in channels {
-                    info!("Joining: {}", channel);
-                    if let Err(err) = writer.encode(commands::join(&channel)).await {
-                        error!("Error while joining '{}': {}", channel, err);
-                    }
-
-                    // wait for 510 ms
-                    // max 20 join attempts per 10 seconds per user (2000 for verified bots)
-                    Timer::after(Duration::from_millis(510)).await;
-                }
-
-                info!("Joined all channels");
+        for channel in channels {
+            info!("Joining: {}", channel);
+            if let Err(err) = self
+                .join(&channel)
+                .or(async {
+                    Timer::after(Duration::from_secs(3)).await;
+                    Err(anyhow!("timed out"))
+                })
+                .await
+            {
+                error!("Error while joining '{}': {}", channel, err);
             }
-        })
-        .detach();
 
+            // wait for 510 ms
+            // max 20 join attempts per 10 seconds per user (2000 for verified bots)
+            //Timer::after(Duration::from_millis(510)).await;
+        }
+
+        info!("Joined all channels");
         Ok(())
+    }
+
+    async fn join(&mut self, channel: &str) -> Result<()> {
+        Ok(self.runner.join(channel).await?)
     }
 
     async fn main_loop(&mut self) -> Result<()> {
-        let quit = self.runner.quit_handle();
-
         loop {
-            // this drives the internal state of the crate
-            match self.runner.next_message().await? {
-                // if we get a Privmsg (you'll get an Commands enum for all messages received)
-                Status::Message(Commands::UserNotice(user_notice)) => {
-                    self.handle_subgift(user_notice)
-                }
-                // ignore the rest
-                Status::Message(..) => continue,
-                // stop if we're stopping
-                Status::Quit => {
-                    quit.notify().await;
-                    break;
-                }
-                Status::Eof => {
-                    self.connect().await?;
-                }
+            self.handle_message().await?;
+        }
+    }
+
+    async fn handle_message(&mut self) -> Result<()> {
+        match self.runner.next_message().await? {
+            Status::Message(Commands::UserNotice(user_notice)) => {
+                self.handle_user_notice(user_notice)
             }
+
+            // stop if we're stopping
+            Status::Quit => unreachable!("never quit"),
+
+            Status::Eof => {
+                info!("received an EOF, reconnecting");
+                self.reconnect().await?;
+            }
+
+            // ignore the rest
+            Status::Message(..) => {}
         }
 
-        trace!("end of main loop");
         Ok(())
     }
 
-    fn handle_subgift(&self, msg: UserNotice<'_>) {
+    fn handle_user_notice(&self, msg: UserNotice<'_>) {
         if let Some(recipient) = msg.msg_param_recipient_user_name() {
             if recipient != self.user_config.name {
                 return;
@@ -166,9 +170,25 @@ fn sub_plan_to_string(plan: Option<SubPlan>) -> &'static str {
     }
 }
 
+pub fn logger_format(
+    w: &mut dyn std::io::Write,
+    now: &mut DeferredNow,
+    record: &Record,
+) -> Result<(), std::io::Error> {
+    let level = record.level();
+    write!(
+        w,
+        "[{}] {} [{}] {}",
+        now.now().format("%Y-%m-%d %H:%M:%S%.6f %:z"),
+        style(level, level),
+        record.module_path().unwrap_or("<unnamed>"),
+        style(level, record.args())
+    )
+}
+
 fn main() -> Result<()> {
-    flexi_logger::Logger::with_env_or_str("info")
-        .format(flexi_logger::colored_opt_format)
+    flexi_logger::Logger::with_env_or_str("info,twitch_gift_farm=trace")
+        .format(logger_format)
         .start()?;
 
     let user_config = UserConfig::builder()
