@@ -4,6 +4,14 @@ version = "0.3.2"
 authors = ["Chronophylos <nikolai@chronophylos.com>"]
 edition = "2018"
 
+[[bin]]
+name = "tgf-farm"
+path = "src/bin/farm.rs"
+
+[[bin]]
+name = "tgf-get-streams"
+path = "src/bin/get-streams.rs"
+
 [dependencies]
 twitchchat = { version = "0.14.8", features = ["async", "smol", "async-tls"] }
 ron = "0.6"
