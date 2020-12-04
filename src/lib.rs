@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use directories::ProjectDirs;
+use flexi_logger::{style, DeferredNow, Record};
 use lazy_static::lazy_static;
 use log::debug;
 use ron::{
@@ -50,4 +51,20 @@ impl Config<'_> {
 
         PATH.as_ref()
     }
+}
+
+pub fn logger_format(
+    w: &mut dyn std::io::Write,
+    now: &mut DeferredNow,
+    record: &Record,
+) -> Result<(), std::io::Error> {
+    let level = record.level();
+    write!(
+        w,
+        "[{}] {} [{}] {}",
+        now.now().format("%Y-%m-%d %H:%M:%S%.6f %:z"),
+        style(level, level),
+        record.module_path().unwrap_or("<unnamed>"),
+        style(level, record.args())
+    )
 }

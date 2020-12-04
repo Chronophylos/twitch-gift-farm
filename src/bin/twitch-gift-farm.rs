@@ -1,10 +1,9 @@
 use anyhow::{anyhow, Result};
-use flexi_logger::{style, DeferredNow, Record};
 use log::{debug, error, info};
 use messages::{SubPlan, UserNotice};
 use smol::{future::FutureExt, Timer};
 use std::time::Duration;
-use twitch_gift_farm::Config;
+use twitch_gift_farm::{logger_format, Config};
 use twitchchat::{
     connector::SmolConnectorTls,
     messages::{self, Commands, NoticeType},
@@ -149,22 +148,6 @@ fn sub_plan_to_string(plan: Option<SubPlan>) -> &'static str {
         Some(SubPlan::Tier3) => "tier3",
         _ => "Unknown",
     }
-}
-
-pub fn logger_format(
-    w: &mut dyn std::io::Write,
-    now: &mut DeferredNow,
-    record: &Record,
-) -> Result<(), std::io::Error> {
-    let level = record.level();
-    write!(
-        w,
-        "[{}] {} [{}] {}",
-        now.now().format("%Y-%m-%d %H:%M:%S%.6f %:z"),
-        style(level, level),
-        record.module_path().unwrap_or("<unnamed>"),
-        style(level, record.args())
-    )
 }
 
 fn main() -> Result<()> {

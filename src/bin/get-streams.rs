@@ -1,13 +1,14 @@
 use anyhow::{anyhow, Result};
 use async_compat::Compat;
 use futures::future::try_join_all;
+use log::info;
 use reqwest::{
     header::{HeaderMap, HeaderName, HeaderValue, ACCEPT},
     Client, StatusCode,
 };
 use serde::Deserialize;
 use std::borrow::Cow;
-use twitch_gift_farm::Config;
+use twitch_gift_farm::{logger_format, Config};
 
 const KRAKEN_STREAMS: &str = "https://api.twitch.tv/kraken/streams";
 const KRAKEN_TOP_GAMES: &str = "https://api.twitch.tv/kraken/games/top";
@@ -124,7 +125,7 @@ async fn get_all_streams_for_game<'a>(client: &Client, game: String) -> Result<V
         .flatten()
         .collect::<Vec<Cow<'a, str>>>();
 
-    println!("Found {} channels streaming {}", streams.len(), game);
+    info!("Found {} channels streaming {}", streams.len(), game);
 
     Ok(streams)
 }
@@ -147,11 +148,8 @@ async fn get_streams<'a>() -> Result<Vec<Cow<'a, str>>> {
 
     let games = get_top_games(&client, 0).await?;
 
-    println!("Found {} games", games.len());
-
-    let max_streams = 1000 * games.len();
-
-    println!("Getting up to {} streams", max_streams);
+    info!("Found {} games", games.len());
+    info!("Getting up to {} streams", 1000 * games.len());
 
     let mut futures = Vec::with_capacity(games.len());
 
@@ -165,9 +163,13 @@ async fn get_streams<'a>() -> Result<Vec<Cow<'a, str>>> {
 }
 
 fn main() -> Result<()> {
+    flexi_logger::Logger::with_env_or_str("info")
+        .format(logger_format)
+        .start()?;
+
     let mut channels = smol::block_on(get_streams())?;
 
-    println!("Found {} channels currently streaming", channels.len());
+    info!("Found {} channels currently streaming", channels.len());
 
     let mut config = Config::load()?;
     let old_count = config.channels.len();
@@ -176,7 +178,7 @@ fn main() -> Result<()> {
     config.channels.sort();
     config.channels.dedup();
 
-    println!(
+    info!(
         "Saving {} new channels for a total of {}",
         config.channels.len() - old_count,
         config.channels.len()
