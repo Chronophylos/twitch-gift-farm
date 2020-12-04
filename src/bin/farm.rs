@@ -104,7 +104,7 @@ impl Bot {
 
     fn handle_user_notice(&self, msg: UserNotice<'_>) {
         if let Some(recipient) = msg.msg_param_recipient_user_name() {
-            if dbg!(recipient != self.user_config.name) {
+            if recipient != self.user_config.name {
                 return;
             }
         } else {
@@ -122,8 +122,8 @@ impl Bot {
 
         info!(
             "[{}] {} received a {} {} from {}. Subscription Plan: {}",
-            recipient,
             msg.channel(),
+            recipient,
             sub_plan,
             gift_type,
             display_name,
