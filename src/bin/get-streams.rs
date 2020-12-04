@@ -88,19 +88,24 @@ async fn get_streams<'a>() -> Result<Vec<Cow<'a, str>>> {
 }
 
 fn main() -> Result<()> {
-    let mut config = Config::load()?;
-
     println!("Getting 1000 live channels");
 
     let mut channels = smol::block_on(get_streams())?;
 
     println!("Found {} channels", channels.len());
 
+    let mut config = Config::load()?;
+    let old_count = config.channels.len();
+
     config.channels.append(&mut channels);
     config.channels.sort();
     config.channels.dedup();
 
-    println!("Saving {} channels", config.channels.len());
+    println!(
+        "Saving {} new channels for a total of {}",
+        config.channels.len() - old_count,
+        config.channels.len()
+    );
 
     config.save()?;
 
