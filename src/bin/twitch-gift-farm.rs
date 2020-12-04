@@ -105,11 +105,14 @@ impl Bot {
 
     fn handle_user_notice(&self, msg: UserNotice<'_>) {
         if let Some(recipient) = msg.msg_param_recipient_user_name() {
-            if recipient != self.user_config.name {
+            if dbg!(recipient != self.user_config.name) {
                 return;
             }
+        } else {
+            return;
         }
 
+        let recipient = msg.msg_param_recipient_display_name().unwrap_or("unkown");
         let gift_type = sub_gift_to_string(msg.msg_id());
         let sub_plan = sub_plan_to_string(msg.msg_param_sub_plan());
         let display_name = msg.display_name().or(msg.login()).unwrap_or("anonymous");
@@ -119,7 +122,8 @@ impl Bot {
             .replace("\\s", " ");
 
         info!(
-            "[{}] Received a {} {} from {}. Subscription Plan: {}",
+            "[{}] {} received a {} {} from {}. Subscription Plan: {}",
+            recipient,
             msg.channel(),
             sub_plan,
             gift_type,
@@ -175,6 +179,8 @@ fn main() -> Result<()> {
         .token(config.token)
         .capabilities(&[Capability::Tags, Capability::Commands])
         .build()?;
+
+    dbg!(&user_config);
 
     let mut bot = smol::block_on(Bot::new(
         user_config,
