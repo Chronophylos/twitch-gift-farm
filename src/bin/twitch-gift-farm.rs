@@ -180,8 +180,6 @@ fn main() -> Result<()> {
         .capabilities(&[Capability::Tags, Capability::Commands])
         .build()?;
 
-    dbg!(&user_config);
-
     let mut bot = smol::block_on(Bot::new(
         user_config,
         config.channels.iter().map(|s| s.to_string()).collect(),
